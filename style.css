@@ -1,6 +1,7 @@
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Playfair+Display:ital,wght@0,500;0,600;1,500&display=swap');
 
 :root{color-scheme:dark;--cream:#fff0d8;--gold:#edc48e;--muted:#b7a9b9}
+#permission-gate{min-height:100svh;display:grid;place-items:center;padding:28px;background:#111020}.gate-card{max-width:430px}.gate-card h1{font-size:38px}.gate-card p{color:var(--muted);line-height:1.7;margin:24px 0}.gate-card .text-button{margin-top:24px}
 *{box-sizing:border-box} [hidden]{display:none!important}
 body{margin:0;background:#111020;color:var(--cream);font-family:'DM Sans',sans-serif;text-align:center}
 button,input{-webkit-tap-highlight-color:transparent} button{font:inherit;cursor:pointer} button:focus-visible,input:focus-visible{outline:2px solid var(--gold);outline-offset:6px}

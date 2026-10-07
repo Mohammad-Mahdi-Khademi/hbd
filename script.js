@@ -18,7 +18,7 @@ function stopMusic() {
   notes.clear();
 }
 function playSong() {
-  if (!context || state === 'revealed') return;
+  if (!context || !['listening', 'ready'].includes(state)) return;
   // A gentle, synthesized instrumental Happy Birthday melody; no audio download needed.
   const melody = [[60,.75],[60,.25],[62,1],[60,1],[65,1],[64,2],
     [60,.75],[60,.25],[62,1],[60,1],[67,1],[65,2],
@@ -53,9 +53,6 @@ async function start() {
   state = 'starting';
   const run = ++generation;
   $('start').disabled = true;
-  $('manual').hidden = false;
-  // Request fullscreen during the tap, before waiting for microphone permission.
-  enterFullscreen($('birthday'));
   // Unlock this media element during a user gesture where the browser permits it.
   video.muted = true;
   video.play().then(() => {
@@ -68,10 +65,9 @@ async function start() {
       context = context || new AudioContext();
       await context.resume();
       if (run !== generation) return;
-      playSong();
     }
     if (!navigator.mediaDevices?.getUserMedia || !context) throw new Error('unavailable');
-    $('status').textContent = 'Tap Allow for the mic, then you can blow out your candle!';
+    $('gate-status').textContent = 'Tap Allow in your browser’s microphone prompt.';
     const incoming = await navigator.mediaDevices.getUserMedia({audio: {
       echoCancellation: true, noiseSuppression: false, autoGainControl: false
     }});
@@ -82,47 +78,56 @@ async function start() {
     analyser.fftSize = 2048;
     source.connect(analyser); // Never connect the mic to the speakers.
     state = 'calibrating';
-    $('start').hidden = true;
-    $('listening').hidden = false;
-    $('instruction').textContent = 'Think of a good wish…';
-    $('status').textContent = 'Shhh… give it a second, then get ready to blow!';
+    $('gate-status').textContent = 'Almost ready… stay quiet for a moment.';
     listen();
   } catch (error) {
     if (run !== generation) return;
     stopMic();
-    state = 'ready';
-    $('start').hidden = true;
-    $('instruction').textContent = 'No mic? No problem!';
-    $('status').textContent = !window.isSecureContext
-      ? 'The mic won’t work on this link, but you can still tap below to make your wish!'
-      : 'We can do this with a tap instead. Your surprise is still waiting!';
+    state = 'idle';
+    $('start').disabled = false;
+    $('gate-status').textContent = 'Microphone access is unavailable. Try again, or continue without it.';
   }
+}
+function showBirthday() {
+  $('permission-gate').hidden = true;
+  $('birthday').hidden = false;
+  document.title = 'Happy birthday, my friend! 🎉';
+  $('manual').hidden = false;
+  $('listening').hidden = state !== 'listening';
+  $('instruction').textContent = 'Ready? Make a wish and blow!';
+  $('status').textContent = state === 'listening'
+    ? 'A short, gentle puff near your mic is enough. You can also tap below.'
+    : 'Make your wish, then tap below to blow out your candle.';
+  playSong();
+  $('manual').focus();
 }
 function listen() {
   const samples = new Float32Array(analyser.fftSize);
   const began = performance.now();
-  let floor = .005, count = 0, total = 0, sustained = 0, last = began;
+  let floor = .003, sustained = 0, last = began;
+  const baseline = [];
   function tick(now) {
     if (!analyser || !['calibrating', 'listening'].includes(state)) return;
     analyser.getFloatTimeDomainData(samples);
     let energy = 0;
     for (const sample of samples) energy += sample * sample;
     const rms = Math.sqrt(energy / samples.length);
-    const threshold = Math.max(.035, floor * 3.2) * (2 / Number($('sensitivity').value));
+    // Cap the noise floor so an early puff cannot make the candle impossible to blow out.
+    const threshold = Math.max(.012, Math.min(.04, floor * 2.2)) * (2 / Number($('sensitivity').value));
     const percent = Math.min(100, Math.round(rms / threshold * 65));
     $('level').style.width = percent + '%';
     $('level').parentElement.setAttribute('aria-valuenow', percent);
     if (state === 'calibrating') {
-      total += rms; count++;
-      if (now - began > 1600) {
-        floor = Math.max(.003, total / count);
+      baseline.push(rms);
+      if (now - began > 700) {
+        baseline.sort((a, b) => a - b);
+        floor = Math.max(.002, baseline[Math.floor(baseline.length * .2)]);
         state = 'listening';
-        $('instruction').textContent = 'Ready? Make a wish and blow!';
-        $('status').textContent = 'Give your phone’s mic a gentle blow for about a second.';
+        showBirthday();
       }
     } else {
       sustained = rms > threshold ? sustained + Math.min(now - last, 80) : Math.max(0, sustained - 35);
-      if (sustained > 430) { blow(); return; }
+      if (sustained >= 160) { blow(); return; }
     }
     last = now;
     frame = requestAnimationFrame(tick);
@@ -148,6 +153,20 @@ function blow() {
   }, 1100);
 }
 $('start').addEventListener('click', start);
+$('skip').addEventListener('click', async () => {
+  ++generation;
+  stopMic(); stopMusic();
+  state = 'ready';
+  const run = generation;
+  try {
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    if (AudioContext) {
+      context = context || new AudioContext();
+      await context.resume();
+    }
+  } catch (_) { /* The surprise still works without audio support. */ }
+  if (run === generation && state === 'ready') showBirthday();
+});
 $('manual').addEventListener('click', blow);
 $('fullscreen').addEventListener('click', () => enterFullscreen(video));
 $('play').addEventListener('click', () => {
@@ -160,6 +179,9 @@ $('again').addEventListener('click', () => {
   ++generation; stopMic(); stopMusic(); video.pause(); video.currentTime = 0;
   if (document.fullscreenElement === video) document.exitFullscreen().catch(() => {});
   state = 'idle';
+  $('birthday').hidden = true; $('permission-gate').hidden = false;
+  document.title = 'A little surprise';
+  $('gate-status').textContent = 'Allow microphone access to get everything ready. Nothing is recorded.';
   $('reveal').hidden = true; $('play').hidden = true;
   $('birthday').classList.remove('blown');
   document.querySelector('.cake-scene').setAttribute('aria-label', 'A birthday cake with a glowing candle');
